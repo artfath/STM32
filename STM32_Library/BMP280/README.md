@@ -50,8 +50,8 @@ GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
 
 ## Documentation
 
-![Nucleo-F401RE](/Assets/nucleo.jpg)
+![Nucleo-F401RE](Assets/nucleo.jpg)
 
-![Live Expression](/Assets/expression.PNG)
+![Live Expression](Assets/expression.PNG)
 
-![SVM Output](/Assets/svm.PNG)
+![SVM Output](Assets/svm.PNG)
