@@ -140,6 +140,7 @@ static QState Table_active(Table * const me, QEvt const * const e) {
     switch (e->sig) {
         //${AOs::Table::SM::active::TEST}
         case TEST_SIG: {
+        	BSP_send("test sukses\n");
             status_ = Q_HANDLED();
             break;
         }

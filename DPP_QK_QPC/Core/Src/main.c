@@ -155,7 +155,16 @@ int main(void)
 //}
 
 /* USER CODE BEGIN 4 */
+//............................................................................
+// interrupt handler for testing preemptions in QK
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
+	QK_ISR_ENTRY();   // inform QK about entering an ISR
 
+    static QEvt const testEvt = QEVT_INITIALIZER(TEST_SIG);
+    QACTIVE_POST(AO_Table, &testEvt, &l_EXTI15_10_IRQHandler);
+
+    QK_ISR_EXIT();    // inform QK about exiting an ISR
+}
 /* USER CODE END 4 */
 
 /**

@@ -46,8 +46,7 @@ Q_DEFINE_THIS_FILE  // define the name of this file for assertions
 // LED pins available on the board (just one user LED LD4--Green on PA.5)
 #define LD4_PIN  5U
 
-// Button pins available on the board (just one user Button B1 on PC.13)
-#define B1_PIN   13U
+
 
 // Local-scope objects -----------------------------------------------------
 static uint32_t l_rndSeed;
@@ -98,59 +97,7 @@ void assert_failed(char const * const module, int_t const id) {
     Q_onError(module, id);
 }
 
-// ISRs used in the application ============================================
 
-void SysTick_Handler(void); // prototype
-void SysTick_Handler(void) {
-    QK_ISR_ENTRY();   // inform QK about entering an ISR
-
-    QTIMEEVT_TICK_X(0U, &l_SysTick_Handler); // time events at rate 0
-
-    // Perform the debouncing of buttons. The algorithm for debouncing
-    // adapted from the book "Embedded Systems Dictionary" by Jack Ganssle
-    // and Michael Barr, page 71.
-    static struct {
-        uint32_t depressed;
-        uint32_t previous;
-    } buttons = { 0U, 0U };
-
-    uint32_t current = ~GPIOC->IDR; // read Port C with state of Button B1
-    uint32_t tmp = buttons.depressed; // save the depressed buttons
-    buttons.depressed |= (buttons.previous & current); // set depressed
-    buttons.depressed &= (buttons.previous | current); // clear released
-    buttons.previous   = current; // update the history
-    tmp ^= buttons.depressed;     // changed debounced depressed
-    current = buttons.depressed;
-
-    if ((tmp & (1U << B1_PIN)) != 0U) { // debounced B1 state changed?
-        if ((current & (1U << B1_PIN)) != 0U) { // is B1 depressed?
-            static QEvt const pauseEvt = QEVT_INITIALIZER(PAUSE_SIG);
-            QACTIVE_PUBLISH(&pauseEvt, &l_SysTick_Handler);
-        }
-        else { // the button is released
-            static QEvt const serveEvt = QEVT_INITIALIZER(SERVE_SIG);
-            QACTIVE_PUBLISH(&serveEvt, &l_SysTick_Handler);
-        }
-    }
-
-#ifdef Q_SPY
-    tmp = SysTick->CTRL; // clear CTRL_COUNTFLAG
-    QS_tickTime_ += QS_tickPeriod_; // account for the clock rollover
-#endif
-
-    QK_ISR_EXIT();  // inform QK about exiting an ISR
-}
-//............................................................................
-// interrupt handler for testing preemptions in QK
-void EXTI15_10_IRQHandler(void); // prototype
-void EXTI15_10_IRQHandler(void) {
-    QK_ISR_ENTRY();   // inform QK about entering an ISR
-
-    static QEvt const testEvt = QEVT_INITIALIZER(TEST_SIG);
-    QACTIVE_POST(AO_Table, &testEvt, &l_EXTI0_1_IRQHandler);
-
-    QK_ISR_EXIT();    // inform QK about exiting an ISR
-}
 void SystemClock_Config(void);
 void SystemClock_Config(void)
 {
@@ -349,9 +296,12 @@ void BSP_displayPaused(uint8_t const paused) {
     // not enough LEDs to implement this feature
     if (paused != 0U) {
         //GPIOA->BSRR = (1U << LD4_PIN);  // turn LED[n] on
+    	BSP_send("paused\n");
+    	HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
     }
     else {
         //GPIOA->BSRR = (1U << (LD4_PIN + 16U));  // turn LED[n] off
+    	HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
     }
 
     // application-specific trace record

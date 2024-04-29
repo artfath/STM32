@@ -22,6 +22,9 @@
 #include "stm32f4xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "qpc.h"                 // QP/C real-time embedded framework
+#include "dpp.h"                 // DPP Application interface
+#include "bsp.h"                 // Board Support Package
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -31,7 +34,8 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+// Button pins available on the board (just one user Button B1 on PC.13)
+#define B1_PIN   13U
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -181,16 +185,52 @@ void DebugMon_Handler(void)
 /**
   * @brief This function handles System tick timer.
   */
-//void SysTick_Handler(void)
-//{
-//  /* USER CODE BEGIN SysTick_IRQn 0 */
-////
-//  /* USER CODE END SysTick_IRQn 0 */
+void SysTick_Handler(void)
+{
+  /* USER CODE BEGIN SysTick_IRQn 0 */
 //
-//  /* USER CODE BEGIN SysTick_IRQn 1 */
-////
-//  /* USER CODE END SysTick_IRQn 1 */
-//}
+  /* USER CODE END SysTick_IRQn 0 */
+
+  /* USER CODE BEGIN SysTick_IRQn 1 */
+	QK_ISR_ENTRY();   // inform QK about entering an ISR
+
+	    QTIMEEVT_TICK_X(0U, &l_SysTick_Handler); // time events at rate 0
+
+	    // Perform the debouncing of buttons. The algorithm for debouncing
+	    // adapted from the book "Embedded Systems Dictionary" by Jack Ganssle
+	    // and Michael Barr, page 71.
+	    static struct {
+	        uint32_t depressed;
+	        uint32_t previous;
+	    } buttons = { 0U, 0U };
+
+	    uint32_t current = ~GPIOC->IDR; // read Port C with state of Button B1
+	    uint32_t tmp = buttons.depressed; // save the depressed buttons
+	    buttons.depressed |= (buttons.previous & current); // set depressed
+	    buttons.depressed &= (buttons.previous | current); // clear released
+	    buttons.previous   = current; // update the history
+	    tmp ^= buttons.depressed;     // changed debounced depressed
+	    current = buttons.depressed;
+
+	    if ((tmp & (1U << B1_PIN)) != 0U) { // debounced B1 state changed?
+	        if ((current & (1U << B1_PIN)) != 0U) { // is B1 depressed?
+	            static QEvt const pauseEvt = QEVT_INITIALIZER(PAUSE_SIG);
+	            QACTIVE_PUBLISH(&pauseEvt, &l_SysTick_Handler);
+	        }
+	        else { // the button is released
+	            static QEvt const serveEvt = QEVT_INITIALIZER(SERVE_SIG);
+	            QACTIVE_PUBLISH(&serveEvt, &l_SysTick_Handler);
+	        }
+	    }
+
+	#ifdef Q_SPY
+	    tmp = SysTick->CTRL; // clear CTRL_COUNTFLAG
+	    QS_tickTime_ += QS_tickPeriod_; // account for the clock rollover
+	#endif
+
+	    QK_ISR_EXIT();  // inform QK about exiting an ISR
+  /* USER CODE END SysTick_IRQn 1 */
+}
 
 /******************************************************************************/
 /* STM32F4xx Peripheral Interrupt Handlers                                    */
@@ -216,16 +256,16 @@ void TIM4_IRQHandler(void)
 /**
   * @brief This function handles EXTI line[15:10] interrupts.
   */
-//void EXTI15_10_IRQHandler(void)
-//{
-//  /* USER CODE BEGIN EXTI15_10_IRQn 0 */
-////
-//  /* USER CODE END EXTI15_10_IRQn 0 */
-//  HAL_GPIO_EXTI_IRQHandler(B1_Pin);
-//  /* USER CODE BEGIN EXTI15_10_IRQn 1 */
-////
-//  /* USER CODE END EXTI15_10_IRQn 1 */
-//}
+void EXTI15_10_IRQHandler(void)
+{
+  /* USER CODE BEGIN EXTI15_10_IRQn 0 */
+
+  /* USER CODE END EXTI15_10_IRQn 0 */
+  HAL_GPIO_EXTI_IRQHandler(B1_Pin);
+  /* USER CODE BEGIN EXTI15_10_IRQn 1 */
+
+  /* USER CODE END EXTI15_10_IRQn 1 */
+}
 
 /* USER CODE BEGIN 1 */
 
