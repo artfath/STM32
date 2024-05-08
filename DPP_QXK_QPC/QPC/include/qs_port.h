@@ -1,7 +1,5 @@
 //============================================================================
-// Product: Board Support Package example
-// Last Updated for Version: 7.3.0
-// Date of the Last Update:  2023-08-12
+// QP/C Real-Time Embedded Framework (RTEF)
 //
 //                   Q u a n t u m  L e a P s
 //                   ------------------------
@@ -26,20 +24,38 @@
 // Plagiarizing this software to sidestep the license obligations is illegal.
 //
 // Contact information:
-// <www.state-machine.com/licensing>
+// <www.state-machine.com>
 // <info@state-machine.com>
 //============================================================================
-#ifndef BSP_H_
-#define BSP_H_
+//! @date Last updated on: 2023-08-16
+//! @version Last updated for: @ref qpc_7_3_0
+//!
+//! @file
+//! @brief QS/C port to a 32-bit CPU and a generic C11 compiler.
 
-#define BSP_TICKS_PER_SEC    100U
+#ifndef QS_PORT_H_
+#define QS_PORT_H_
 
-void BSP_init(void);
-void BSP_start(void);
-void BSP_terminate(int16_t result);
+// QS time-stamp size in bytes
+#define QS_TIME_SIZE     4U
 
-void BSP_ledOn(void);
-void BSP_ledOff(void);
-void BSP_send(const char * message);
+// object pointer size in bytes
+#define QS_OBJ_PTR_SIZE  4U
 
-#endif // BSP_H_
+// function pointer size in bytes
+#define QS_FUN_PTR_SIZE  4U
+
+//============================================================================
+// NOTE: QS might be used with or without other QP components, in which
+// case the separate definitions of the macros QF_CRIT_STAT, QF_CRIT_ENTRY(),
+// and QF_CRIT_EXIT() are needed. In this port QS is configured to be used
+// with the other QP component, by simply including "qp_port.h"
+//*before* "qs.h".
+#ifndef QP_PORT_H_
+#include "qp_port.h" // use QS with QP
+#endif
+
+#include "qs.h"      // QS platform-independent public interface
+
+#endif // QS_PORT_H_
+
