@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "stdbool.h"
+#include "stdlib.h"
 #include <stdio.h>
 #include <string.h>
 /* USER CODE END Includes */
@@ -49,16 +50,22 @@ DMA_HandleTypeDef hdma_i2c1_tx;
 TIM_HandleTypeDef htim1;
 
 UART_HandleTypeDef huart2;
+DMA_HandleTypeDef hdma_usart2_rx;
+DMA_HandleTypeDef hdma_usart2_tx;
 
 /* USER CODE BEGIN PV */
- uint8_t SLV_ADDR = 0x00; // Use 8-bit address
+ uint8_t SLV_ADDR = 0x28<<1; // Use 8-bit address
 
-
-static const uint8_t REG_WR_CF = 0x01<<0;//write config
-static const uint8_t REG_RD_CF = 0x01<<1;//read config
-static const uint8_t REG_RD_PW = 0x01<<2;//read power
+static const uint8_t REG_ST_RDY = 0x01<<0;//status ready
+static const uint8_t REG_WR_CF = 0x01<<1;//write config
+static const uint8_t REG_RD_CF = 0x01<<1 | 0x01;//read config
+static const uint8_t REG_MD_LP = 0x01<<2;//mode loop
+static const uint8_t REG_RD_PW = 0x01<<3;//read power
+static const uint8_t REG_MF_ID = 0x01<<4;//manufacture id
+static const uint8_t REG_VR_ID = 0x01<<5;//read power
 uint8_t data_config[2]={0};
 uint8_t rxbuf[2]={0};
+uint8_t rx_uart;
 int i=0;
 bool state = true;
 uint8_t buffer[12] = {0};
@@ -73,6 +80,10 @@ static void MX_I2C1_Init(void);
 static void MX_TIM1_Init(void);
 /* USER CODE BEGIN PFP */
 void Task_action(char *message);
+void Task_Send_Hex(char *message);
+void Send_data(char *message);
+void Send_data_hex(char *message);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -88,11 +99,7 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-	HAL_StatusTypeDef ret;
 
-	  uint8_t buf, buf1, buf2;
-	  int16_t val;
-	  float temp_c;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -118,7 +125,7 @@ int main(void)
   MX_I2C1_Init();
   MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
-
+  HAL_UART_Receive_DMA(&huart2, &rx_uart, 1);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -128,22 +135,39 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-		  buffer[1] = 0xE3;//input ctrl on
-		  buffer[2] = 0x65;
-	  if(i==0){
-		  buffer[0] = REG_WR_CF;
-	  }else if(i==1){
 
-		  buffer[0] = REG_RD_CF;
-	  }else if(i==2){
-
-		  buffer[0] = REG_RD_PW;
-	  }else{
-
-	  }
-
-
-
+//		  buffer[1] = 0b01100101;//input ctrl on
+//		  if(i==0){
+//			  buffer[0] = REG_ST_RDY;
+//			  HAL_I2C_Master_Transmit_DMA(&hi2c1, SLV_ADDR, buffer, 1);
+//		  }
+//		  else if(i==1){
+//			  buffer[2] = 0b11100111; //write config
+//			  buffer[0] = REG_WR_CF;
+////			  HAL_I2C_Master_Transmit_DMA(&hi2c1, SLV_ADDR, buffer, 3);
+//		  }else if(i==2){
+//			  buffer[2] = 0b11100110; //read config
+//			  buffer[0] = REG_WR_CF;
+////			  HAL_I2C_Master_Transmit_DMA(&hi2c1, SLV_ADDR, buffer, 3);
+//		  }else if(i==3){
+//
+//			  buffer[0] = REG_RD_PW;
+////			  HAL_I2C_Master_Transmit_DMA(&hi2c1, SLV_ADDR, buffer, 1);
+//		  }else if(i==4){
+//			  buffer[0] = REG_MF_ID;
+////			  HAL_I2C_Master_Transmit_DMA(&hi2c1, SLV_ADDR, buffer, 1);
+//		  }else if(i==5){
+//			  buffer[0] = REG_VR_ID;
+////			  HAL_I2C_Master_Transmit_DMA(&hi2c1, SLV_ADDR, buffer, 1);
+//		  }else{
+//
+//		  }
+//
+//		  HAL_Delay(700);
+//		  i++;
+//	  			if(i>5){
+//	  				i=2;
+//	  			}
 //	  buffer[3] = REG_4;
 //	  if(i == 1){
 //		  HAL_I2C_Master_Transmit_DMA(&hi2c1, SLV_ADDR, &buf, 1);
@@ -333,9 +357,15 @@ static void MX_DMA_Init(void)
   /* DMA1_Stream0_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Stream0_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream0_IRQn);
+  /* DMA1_Stream5_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream5_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream5_IRQn);
   /* DMA1_Stream6_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Stream6_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream6_IRQn);
+  /* DMA1_Stream7_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream7_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream7_IRQn);
 
 }
 
@@ -381,6 +411,10 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+int __io_putchar(int ch){
+	HAL_UART_Transmit(&huart2, (uint8_t *) &ch, 1, HAL_MAX_DELAY);
+	return ch;
+}
 void Task_action(char *message)
 {
 	while(*message){
@@ -392,7 +426,7 @@ void Task_action(char *message)
 }
 void Task_Send_Hex(char *message)
 {
-	const char hex_digits[] = "0123456789ABCDEF";
+	char hex_digits[] = "0123456789ABCDEF";
 	while(*message){
 
 		ITM_SendChar(hex_digits[(*message >> 4) & 0x0F]);
@@ -403,22 +437,15 @@ void Task_Send_Hex(char *message)
 
 	ITM_SendChar('\n');
 }
+
 void HAL_I2C_MasterTxCpltCallback(I2C_HandleTypeDef *hi2c){
 	HAL_I2C_Master_Receive_DMA(&hi2c1, SLV_ADDR, rxbuf, 2);
-	Task_Send_Hex((char *)rxbuf);
 }
-void HAL_I2C_MasterRxCpltCallback(I2C_HandleTypeDef *hi2c){
-//	Task_action("data : ");
-//	Task_Send_Hex((char *)rxbuf);
-//	Task_action((char *)rxbuf);
 
-//	memset(rxbuf,0,2*sizeof(rxbuf[0]));
-//	ITM_SendChar(rxbuf);
-//	ITM_SendChar('\n');
-	/*receive character 'X*/
-//	if(rxbuf == 0x58){
-//		i=0;
-//	}
+void HAL_I2C_MasterRxCpltCallback(I2C_HandleTypeDef *hi2c){
+	Task_Send_Hex((char *)rxbuf);
+	memset(rxbuf, 0, 2*sizeof(char));
+
 }
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 	if(GPIO_Pin == B1_Pin && state == true){
@@ -429,7 +456,63 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 		__NOP();
 	}
 }
+void Send_data(char *message)
+{
+	HAL_UART_Transmit_DMA(&huart2, (uint8_t *)message, strlen(message));
+}
 
+void Send_data_hex(char *message)
+{
+	char hex_digits[] = "0123456789ABCDEF";
+	char *hex = malloc(4);
+	int i=0;
+	int n=0;
+		while(*message){
+			i+=n;
+			hex[i] = hex_digits[(*message >> 4) & 0x0F];
+			i++;
+			hex[i] = hex_digits[(*message & 0x0F)];
+			message++;
+			n++;
+		}
+		HAL_UART_Transmit_DMA(&huart2,(uint8_t *)hex,4);
+}
+/*event callback when uart finish receive data/idle*/
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+//	Send_data(&rx_uart);
+//	if(huart->Instance == USART2){
+		  buffer[1] = 0b01100101;//input ctrl on
+		  if(rx_uart== 0x30){
+			  buffer[0] = REG_ST_RDY;
+			  HAL_I2C_Master_Transmit_DMA(&hi2c1, SLV_ADDR, buffer, 1);//0x65 101
+		  }else if(rx_uart== 0x31){
+			  buffer[2] = 0b11100111; //write config
+			  buffer[0] = REG_WR_CF;
+			  HAL_I2C_Master_Transmit(&hi2c1, SLV_ADDR, buffer, 3, 500); //0xFF 255
+		  }else if(rx_uart== 0x32){
+			  buffer[0] = REG_RD_CF;
+			  HAL_I2C_Master_Transmit_DMA(&hi2c1, SLV_ADDR, buffer, 1);//0xFF 255
+		  }else if(rx_uart== 0x33){
+			  buffer[0] = REG_RD_PW;
+			  HAL_I2C_Master_Transmit_DMA(&hi2c1, SLV_ADDR, buffer, 1);//0x65 101
+		  }else if(rx_uart== 0x34){
+			  buffer[0] = REG_MF_ID;
+			  HAL_I2C_Master_Transmit_DMA(&hi2c1, SLV_ADDR, buffer, 1);//0x65 101
+		  }else if(rx_uart== 0x35){
+			  buffer[0] = REG_VR_ID;
+			  HAL_I2C_Master_Transmit_DMA(&hi2c1, SLV_ADDR, buffer, 1);//0x65 101
+		  }else{
+
+		  }
+		/*Receive command*/
+//		rx_uart = 0;
+		  HAL_UART_Receive_DMA(&huart2, &rx_uart, 1);
+//		__HAL_DMA_DISABLE_IT(&hdma_usart2_rx, DMA_IT_HT);
+
+//	}
+
+}
 /* USER CODE END 4 */
 
 /**
@@ -453,7 +536,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		if(HAL_GPIO_ReadPin(B1_GPIO_Port, B1_Pin) == GPIO_PIN_RESET){
 			HAL_I2C_Master_Transmit_DMA(&hi2c1, SLV_ADDR, buffer, 3);
 			i++;
-			if(i>2){
+			if(i>5){
 				i=2;
 			}
 			state = true;
