@@ -1,0 +1,1 @@
+..\Srec\srec_cat.exe Flash_Test.hex -Intel -fill 0xFF 0x08000000 0x08003FFC -STM32 0x08003FFC -o Flash_Test_SRECORD.hex -Intel
