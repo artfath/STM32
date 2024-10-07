@@ -59,8 +59,7 @@
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
-extern TIM_HandleTypeDef htim4;
-
+extern UART_HandleTypeDef huart2;
 /* USER CODE BEGIN EV */
 
 /* USER CODE END EV */
@@ -68,21 +67,6 @@ extern TIM_HandleTypeDef htim4;
 /******************************************************************************/
 /*           Cortex-M4 Processor Interruption and Exception Handlers          */
 /******************************************************************************/
-/**
-  * @brief This function handles Non maskable interrupt.
-  */
-//void NMI_Handler(void)
-//{
-//  /* USER CODE BEGIN NonMaskableInt_IRQn 0 */
-////
-//  /* USER CODE END NonMaskableInt_IRQn 0 */
-//  /* USER CODE BEGIN NonMaskableInt_IRQn 1 */
-////   while (1)
-////  {
-////  }
-//  /* USER CODE END NonMaskableInt_IRQn 1 */
-//}
-
 /**
   * @brief This function handles Hard fault interrupt.
   */
@@ -169,69 +153,6 @@ void DebugMon_Handler(void)
   /* USER CODE END DebugMonitor_IRQn 1 */
 }
 
-/**
-  * @brief This function handles Pendable request for system service.
-  */
-//void PendSV_Handler(void)
-//{
-//  /* USER CODE BEGIN PendSV_IRQn 0 */
-////
-//  /* USER CODE END PendSV_IRQn 0 */
-//  /* USER CODE BEGIN PendSV_IRQn 1 */
-////
-//  /* USER CODE END PendSV_IRQn 1 */
-//}
-
-/**
-  * @brief This function handles System tick timer.
-  */
-void SysTick_Handler(void)
-{
-  /* USER CODE BEGIN SysTick_IRQn 0 */
-//
-  /* USER CODE END SysTick_IRQn 0 */
-
-  /* USER CODE BEGIN SysTick_IRQn 1 */
-	QK_ISR_ENTRY();   // inform QK about entering an ISR
-
-	    QTIMEEVT_TICK_X(0U, &l_SysTick_Handler); // time events at rate 0
-
-	    // Perform the debouncing of buttons. The algorithm for debouncing
-	    // adapted from the book "Embedded Systems Dictionary" by Jack Ganssle
-	    // and Michael Barr, page 71.
-	    static struct {
-	        uint32_t depressed;
-	        uint32_t previous;
-	    } buttons = { 0U, 0U };
-
-	    uint32_t current = ~GPIOC->IDR; // read Port C with state of Button B1
-	    uint32_t tmp = buttons.depressed; // save the depressed buttons
-	    buttons.depressed |= (buttons.previous & current); // set depressed
-	    buttons.depressed &= (buttons.previous | current); // clear released
-	    buttons.previous   = current; // update the history
-	    tmp ^= buttons.depressed;     // changed debounced depressed
-	    current = buttons.depressed;
-
-	    if ((tmp & (1U << B1_PIN)) != 0U) { // debounced B1 state changed?
-	        if ((current & (1U << B1_PIN)) != 0U) { // is B1 depressed?
-	            static QEvt const pauseEvt = QEVT_INITIALIZER(PAUSE_SIG);
-	            QACTIVE_PUBLISH(&pauseEvt, &l_SysTick_Handler);
-	        }
-	        else { // the button is released
-	            static QEvt const serveEvt = QEVT_INITIALIZER(SERVE_SIG);
-	            QACTIVE_PUBLISH(&serveEvt, &l_SysTick_Handler);
-	        }
-	    }
-
-	#ifdef Q_SPY
-	    tmp = SysTick->CTRL; // clear CTRL_COUNTFLAG
-	    QS_tickTime_ += QS_tickPeriod_; // account for the clock rollover
-	#endif
-
-	    QK_ISR_EXIT();  // inform QK about exiting an ISR
-  /* USER CODE END SysTick_IRQn 1 */
-}
-
 /******************************************************************************/
 /* STM32F4xx Peripheral Interrupt Handlers                                    */
 /* Add here the Interrupt Handlers for the used peripherals.                  */
@@ -240,18 +161,18 @@ void SysTick_Handler(void)
 /******************************************************************************/
 
 /**
-  * @brief This function handles TIM4 global interrupt.
+  * @brief This function handles USART2 global interrupt.
   */
-void TIM4_IRQHandler(void)
-{
-  /* USER CODE BEGIN TIM4_IRQn 0 */
-
-  /* USER CODE END TIM4_IRQn 0 */
-  HAL_TIM_IRQHandler(&htim4);
-  /* USER CODE BEGIN TIM4_IRQn 1 */
-
-  /* USER CODE END TIM4_IRQn 1 */
-}
+//void USART2_IRQHandler(void)
+//{
+//  /* USER CODE BEGIN USART2_IRQn 0 */
+//////
+//  /* USER CODE END USART2_IRQn 0 */
+//  HAL_UART_IRQHandler(&huart2);
+//  /* USER CODE BEGIN USART2_IRQn 1 */
+//////
+//  /* USER CODE END USART2_IRQn 1 */
+//}
 
 /**
   * @brief This function handles EXTI line[15:10] interrupts.

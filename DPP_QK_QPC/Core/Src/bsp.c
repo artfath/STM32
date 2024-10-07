@@ -39,14 +39,15 @@
 // add other drivers if necessary...
 #include "usart.h"
 #include "gpio.h"
-#include "string.h"
 Q_DEFINE_THIS_FILE  // define the name of this file for assertions
 
 // Local-scope defines -----------------------------------------------------
 // LED pins available on the board (just one user LED LD4--Green on PA.5)
 #define LD4_PIN  5U
 
-
+// ISRs defined in this BSP ------------------------------------------------
+void SysTick_Handler(void);
+void LPUART1_IRQHandler(void);
 
 // Local-scope objects -----------------------------------------------------
 static uint32_t l_rndSeed;
@@ -58,7 +59,8 @@ static uint32_t l_rndSeed;
 
     // QSpy source IDs
     static QSpyId const l_SysTick_Handler = { 0U };
-    static QSpyId const l_EXTI0_1_IRQHandler = { 0U };
+
+    static UART_HandleTypeDef l_uartHandle;
 
     enum AppRecords { // application-specific trace records
         PHILO_STAT = QS_USER,
@@ -97,48 +99,46 @@ void assert_failed(char const * const module, int_t const id) {
     Q_onError(module, id);
 }
 
+// ISRs used in the application ============================================
 
-void SystemClock_Config(void);
-void SystemClock_Config(void)
-{
-  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+void SysTick_Handler(void) {
+    QK_ISR_ENTRY();   // inform QK about entering an ISR
 
-  /** Configure the main internal regulator output voltage
-  */
-  __HAL_RCC_PWR_CLK_ENABLE();
-  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE2);
+    QTIMEEVT_TICK_X(0U, &l_SysTick_Handler); // time events for rate 0
 
-  /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
-  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-  RCC_OscInitStruct.PLL.PLLM = 16;
-  RCC_OscInitStruct.PLL.PLLN = 336;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV4;
-  RCC_OscInitStruct.PLL.PLLQ = 7;
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-  {
-    Error_Handler();
-  }
+    // Perform the debouncing of buttons. The algorithm for debouncing
+    // adapted from the book "Embedded Systems Dictionary" by Jack Ganssle
+    // and Michael Barr, page 71.
+//    static struct {
+//        uint32_t depressed;
+//        uint32_t previous;
+//    } buttons = { 0U, 0U };
+//
+//    uint32_t current = BSP_PB_GetState(BUTTON_USER); // read User button
+//    uint32_t tmp = buttons.depressed; // save the depressed buttons
+//    buttons.depressed |= (buttons.previous & current); // set depressed
+//    buttons.depressed &= (buttons.previous | current); // clear released
+//    buttons.previous   = current; // update the history
+//    tmp ^= buttons.depressed;     // changed debounced depressed
+//    current = buttons.depressed;
+//
+//    if (tmp != 0U) { // debounced User button state changed?
+//        if (current != 0U) { // is User button depressed?
+//            static QEvt const pauseEvt = QEVT_INITIALIZER(PAUSE_SIG);
+//            QACTIVE_PUBLISH(&pauseEvt, &l_SysTick_Handler);
+//        }
+//        else { // the button is released
+//            static QEvt const serveEvt = QEVT_INITIALIZER(SERVE_SIG);
+//            QACTIVE_PUBLISH(&serveEvt, &l_SysTick_Handler);
+//        }
+//    }
 
-  /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+#ifdef Q_SPY
+//    tmp = SysTick->CTRL; // clear SysTick_CTRL_COUNTFLAG
+    QS_tickTime_ += QS_tickPeriod_; // account for the clock rollover
+#endif
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
-  {
-    Error_Handler();
-  }
+    QK_ISR_EXIT();  // inform QK about exiting an ISR
 }
 
 //............................................................................
@@ -151,13 +151,24 @@ void SystemClock_Config(void)
 void USART2_IRQHandler(void); // prototype
 void USART2_IRQHandler(void) { // used in QS-RX (kernel UNAWARE interrutp)
     // is RX register NOT empty?
-    if ((USART2->ISR & (1U << 5U)) != 0U) {
-        uint32_t b = USART2->RDR;
+    if ((l_uartHandle.Instance->SR & USART_SR_RXNE) != 0) {
+        uint8_t b = l_uartHandle.Instance->DR;
         QS_RX_PUT(b);
+        l_uartHandle.Instance->SR &= ~USART_SR_RXNE; // clear int.
     }
 
     QK_ARM_ERRATUM_838869();
 }
+//void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){ // used in QS-RX (kernel UNAWARE interrutp)
+//    // is RX register NOT empty?
+//    if ((USART2->SR & USART_SR_RXNE_Msk) != 0) {
+//        uint8_t b = USART2->DR;
+//        QS_RX_PUT(b);
+//    }
+//
+//    QK_ARM_ERRATUM_838869();
+//
+//}
 #endif // Q_SPY
 
 //............................................................................
@@ -171,48 +182,25 @@ void QF_onContextSw(QActive *prev, QActive *next) {
 }
 #endif // QF_ON_CONTEXT_SW
 
-
 //============================================================================
 // BSP functions...
 
 void BSP_init(void) {
-//    // Configure the MPU to prevent NULL-pointer dereferencing ...
-//    MPU->RBAR = 0x0U                          // base address (NULL)
-//                | MPU_RBAR_VALID_Msk          // valid region
-//                | (MPU_RBAR_REGION_Msk & 7U); // region #7
-//    MPU->RASR = (7U << MPU_RASR_SIZE_Pos)     // 2^(7+1) region
-//                | (0x0U << MPU_RASR_AP_Pos)   // no-access region
-//                | MPU_RASR_ENABLE_Msk;        // region enable
-//    MPU->CTRL = MPU_CTRL_PRIVDEFENA_Msk       // enable background region
-//                | MPU_CTRL_ENABLE_Msk;        // enable the MPU
-//    __ISB();
-//    __DSB();
-//
-//    // NOTE: SystemInit() has been already called from the startup code
-//    // but SystemCoreClock needs to be updated
-//    SystemCoreClockUpdate();
-//
-//    // enable GPIOA clock port for the LED LD4
-//    RCC->IOPENR |= (1U << 0U);
-//
-//    // set all used GPIOA pins as push-pull output, no pull-up, pull-down
-//    GPIOA->MODER   &= ~(3U << 2U*LD4_PIN);
-//    GPIOA->MODER   |=  (1U << 2U*LD4_PIN);
-//    GPIOA->OTYPER  &= ~(1U <<    LD4_PIN);
-//    GPIOA->OSPEEDR &= ~(3U << 2U*LD4_PIN);
-//    GPIOA->OSPEEDR |=  (1U << 2U*LD4_PIN);
-//    GPIOA->PUPDR   &= ~(3U << 2U*LD4_PIN);
-//
-//    // enable GPIOC clock port for the Button B1
-//    RCC->IOPENR |=  (1U << 2U);
-//
-//    // configure Button B1 pin on GPIOC as input, no pull-up, pull-down
-//    GPIOC->MODER &= ~(3U << 2U*B1_PIN);
-//    GPIOC->PUPDR &= ~(3U << 2U*B1_PIN);
+    // Reset of all peripherals, Initializes the Flash interface
+    //
+    // NOTE:
+    // STM32Cube's HAL_Init() calls the weakly defined HAL_InitTick(), which
+    // by default configures and starts the Systick interrupt. This is
+    // TOO EARLY, because the system os NOT ready yet to handle interrupts.
+    // To avoid problems, a dummy definition for HAL_InitTick() is provided
+    // in the file stm32xxxx_hal_msp.c. The SystTick is configured and
+    // started later in QF_onStartup().
+    //
 	  HAL_Init();
+
 	  SystemClock_Config();
-	  MX_GPIO_Init();
-	  MX_USART2_UART_Init();
+//	  MX_GPIO_Init();
+//	  MX_USART2_UART_Init();
 
     BSP_randomSeed(1234U); // seed the random number generator
 
@@ -281,10 +269,7 @@ void BSP_displayPhilStat(uint8_t n, char const *stat) {
     	HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
 //        GPIOA->BSRR = (1U << (LD4_PIN + 16U));  // turn LED off
     }
-    char buffer[100];
-    sprintf(buffer, "philo %d  ", n);
-    BSP_send(buffer);
-    BSP_send(stat);
+
     // app-specific trace record...
     QS_BEGIN_ID(PHILO_STAT, AO_Table->prio)
         QS_U8(1, n);  // Philosopher number
@@ -296,7 +281,7 @@ void BSP_displayPaused(uint8_t const paused) {
     // not enough LEDs to implement this feature
     if (paused != 0U) {
         //GPIOA->BSRR = (1U << LD4_PIN);  // turn LED[n] on
-    	BSP_send("paused\n");
+//    	BSP_send("paused\n");
     	HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
     }
     else {
@@ -315,6 +300,9 @@ void BSP_randomSeed(uint32_t seed) {
 }
 //............................................................................
 uint32_t BSP_random(void) { // a very cheap pseudo-random-number generator
+	// Some flating point code is to exercise the VFP...
+	    double volatile x = 3.1415926;
+	    x = x + 2.7182818;
 
     QSchedStatus lockStat = QK_schedLock(N_PHILO); // N_PHILO prio. ceiling
     // "Super-Duper" Linear Congruential Generator (LCG)
@@ -337,9 +325,7 @@ void BSP_ledOff(void) {
 //    GPIOA->BSRR = (1U << (LD4_PIN + 16U));  // turn LED off
 }
 
-void BSP_send(const char * message) {
-	HAL_UART_Transmit(&huart2, (uint8_t *)message, strlen(message),2);
-}
+
 //............................................................................
 void BSP_terminate(int16_t result) {
     Q_UNUSED_PAR(result);
@@ -357,12 +343,12 @@ void QF_onStartup(void) {
 
     // set priorities of ALL ISRs used in the system, see NOTE1
     NVIC_SetPriority(USART2_IRQn,    0U); // kernel UNAWARE interrupt
-    NVIC_SetPriority(EXTI15_10_IRQn,   QF_AWARE_ISR_CMSIS_PRI + 0U);
-    NVIC_SetPriority(SysTick_IRQn,   QF_AWARE_ISR_CMSIS_PRI + 1U);
+//    NVIC_SetPriority(EXTI15_10_IRQn,   QF_AWARE_ISR_CMSIS_PRI + 0U);
+    NVIC_SetPriority(SysTick_IRQn,   QF_AWARE_ISR_CMSIS_PRI + 0U);
     // ...
 
     // enable IRQs...
-    NVIC_EnableIRQ(EXTI15_10_IRQn);
+//    NVIC_EnableIRQ(EXTI15_10_IRQn);
 
 #ifdef Q_SPY
     NVIC_EnableIRQ(USART2_IRQn); // UART2 interrupt used for QS-RX
@@ -375,21 +361,25 @@ void QF_onCleanup(void) {
 //............................................................................
 void QK_onIdle(void) {
     // toggle an LED on and then off (not enough LEDs, see NOTE2)
-    //QF_INT_DISABLE();
-    //GPIOA->BSRR = (1U << LD4_PIN);         // turn LED[n] on
-    //GPIOA->BSRR = (1U << (LD4_PIN + 16U)); // turn LED[n] off
-    //QF_INT_ENABLE();
+    QF_INT_DISABLE();
+    BSP_ledOn();         // turn LED[n] on
+    BSP_ledOn(); // turn LED[n] off
+    QF_INT_ENABLE();
+
+    // Some floating point code is to exercise the VFP...
+    double volatile x = 1.73205;
+    x = x * 1.73205;
 
 #ifdef Q_SPY
     QS_rxParse();  // parse all the received bytes
 
-    if ((USART2->ISR & (1U << 7U)) != 0U) { // TXE empty?
+    if ((l_uartHandle.Instance->SR & UART_FLAG_TXE) != 0U) { // TXE empty?
         QF_INT_DISABLE();
         uint16_t b = QS_getByte();
         QF_INT_ENABLE();
 
-        if (b != QS_EOD) {   // not End-Of-Data?
-            USART2->TDR = b; // put into the DR register
+        if (b != QS_EOD) {  // not End-Of-Data?
+            l_uartHandle.Instance->DR = b; // put into TDR
         }
     }
 #elif defined NDEBUG
@@ -405,21 +395,6 @@ void QK_onIdle(void) {
 #ifdef Q_SPY
 
 //............................................................................
-static uint16_t const UARTPrescTable[12] = {
-    1U, 2U, 4U, 6U, 8U, 10U, 12U, 16U, 32U, 64U, 128U, 256U
-};
-
-#define UART_DIV_SAMPLING16(__PCLK__, __BAUD__, __CLOCKPRESCALER__) \
-  ((((__PCLK__)/UARTPrescTable[(__CLOCKPRESCALER__)]) \
-  + ((__BAUD__)/2U)) / (__BAUD__))
-
-#define UART_PRESCALER_DIV1  0U
-
-// USART2 pins PA.2 and PA.3
-#define USART2_TX_PIN 2U
-#define USART2_RX_PIN 3U
-
-//............................................................................
 uint8_t QS_onStartup(void const *arg) {
     Q_UNUSED_PAR(arg);
 
@@ -429,28 +404,20 @@ uint8_t QS_onStartup(void const *arg) {
     static uint8_t qsRxBuf[100];    // buffer for QS-RX channel
     QS_rxInitBuf(qsRxBuf, sizeof(qsRxBuf));
 
-    // enable peripheral clock for USART2
-    RCC->IOPENR  |= ( 1U <<  0U);  // Enable GPIOA clock for USART pins
-    RCC->APBENR1 |= ( 1U << 17U);  // Enable USART#2 clock
+    l_uartHandle.Instance        = USART2;
+    l_uartHandle.Init.BaudRate   = 115200;
+    l_uartHandle.Init.WordLength = UART_WORDLENGTH_8B;
+    l_uartHandle.Init.StopBits   = UART_STOPBITS_1;
+    l_uartHandle.Init.Parity     = UART_PARITY_NONE;
+    l_uartHandle.Init.HwFlowCtl  = UART_HWCONTROL_NONE;
+    l_uartHandle.Init.Mode       = UART_MODE_TX_RX;
+    l_uartHandle.Init.OverSampling        = UART_OVERSAMPLING_16;
+    if (HAL_UART_Init(&l_uartHandle) != HAL_OK) {
+        return 0U; // failure
+    }
 
-    // Configure PA to USART2_RX, PA to USART2_TX
-    GPIOA->AFR[0] &= ~((15U << 4U*USART2_RX_PIN) | (15U << 4U*USART2_TX_PIN));
-    GPIOA->AFR[0] |=  (( 1U << 4U*USART2_RX_PIN) | ( 1U << 4U*USART2_TX_PIN));
-    GPIOA->MODER  &= ~(( 3U << 2U*USART2_RX_PIN) | ( 3U << 2U*USART2_TX_PIN));
-    GPIOA->MODER  |=  (( 2U << 2U*USART2_RX_PIN) | ( 2U << 2U*USART2_TX_PIN));
-
-    // baud rate
-    USART2->BRR  = UART_DIV_SAMPLING16(
-                       SystemCoreClock, 115200U, UART_PRESCALER_DIV1);
-    USART2->CR3  = 0x0000U |      // no flow control
-                   (1U << 12U);   // disable overrun detection (OVRDIS)
-    USART2->CR2  = 0x0000U;       // 1 stop bit
-    USART2->CR1  = ((1U <<  2U) | // enable RX
-                    (1U <<  3U) | // enable TX
-                    (1U <<  5U) | // enable RX interrupt
-                    (0U << 12U) | // 8 data bits
-                    (0U << 28U) | // 8 data bits
-                    (1U <<  0U)); // enable USART
+    // Set UART to receive 1 byte at a time via interrupt
+    HAL_UART_Receive_IT(&l_uartHandle, (uint8_t *)qsRxBuf, 1);
 
     QS_tickPeriod_ = SystemCoreClock / BSP_TICKS_PER_SEC;
     QS_tickTime_ = QS_tickPeriod_; // to start the timestamp at zero
@@ -462,7 +429,7 @@ void QS_onCleanup(void) {
 }
 //............................................................................
 QSTimeCtr QS_onGetTime(void) { // NOTE: invoked with interrupts DISABLED
-    if ((SysTick->CTRL & 0x00010000U) == 0U) { // not set?
+    if ((SysTick->CTRL & SysTick_CTRL_COUNTFLAG_Msk) == 0U) { // not set?
         return QS_tickTime_ - (QSTimeCtr)SysTick->VAL;
     }
     else { // the rollover occurred, but the SysTick_ISR did not run yet
@@ -477,9 +444,9 @@ void QS_onFlush(void) {
     for (;;) {
         uint16_t b = QS_getByte();
         if (b != QS_EOD) {
-            while ((USART2->ISR & (1U << 7U)) == 0U) { // while TXE not empty
+            while ((l_uartHandle.Instance->SR & UART_FLAG_TXE) == 0U) {
             }
-            USART2->TDR = b;
+            l_uartHandle.Instance->DR = b;
         }
         else {
             break;
