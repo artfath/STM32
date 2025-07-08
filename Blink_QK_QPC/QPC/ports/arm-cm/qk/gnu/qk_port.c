@@ -277,7 +277,7 @@ void QK_init(void) {
 // NOTE:
 // The inline GNU assembler does not accept mnemonics MOVS, LSRS and ADDS,
 // but for ARMv6-M the mnemonics MOV, LSR and ADD always set the condition
-//// flags in the PSR.
+// flags in the PSR.
 __attribute__ ((naked, optimize("-fno-stack-protector")))
 void PendSV_Handler(void) {
 __asm volatile (
@@ -382,7 +382,7 @@ __asm volatile (
 // This exception handler is used for returning back to the preempted thread.
 // The exception handler simply removes its own interrupt stack frame from
 // the stack (MSP) and returns to the preempted task using the interrupt
-//// stack frame that must be at the top of the stack.
+// stack frame that must be at the top of the stack.
 __attribute__ ((naked, optimize("-fno-stack-protector")))
 #ifndef QK_USE_IRQ_NUM  //--------- IRQ NOT defined, use NMI by default
 
